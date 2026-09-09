@@ -24,3 +24,5 @@ services:
         sync: false
       - key: IP_GEO_PROVIDER_URL
         value: https://ipapi.co/{ip}/json/
+      - key: SESSION_RESET_TOKEN
+        sync: false

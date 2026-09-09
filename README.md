@@ -24,6 +24,8 @@ Render: deploy from `render.yaml`, or set root directory to `backend`, build com
 
 Vercel: set project root to `frontend`, build command `npm run build`, output directory `dist`, and keep `frontend/vercel.json` for SPA fallback. Set `VITE_API_URL=https://<render-service>.onrender.com`, `VITE_WS_URL=wss://<render-service>.onrender.com/ws`, and optionally `VITE_MAP_STYLE_URL`.
 
+To start a clean development world, call `POST /api/session/reset`. In production set `SESSION_RESET_TOKEN` and call `POST /api/session/reset?token=<token>`. The next active device becomes `HOST-001`; subsequent devices become `TRUCK-002`, `TRUCK-003`, and so on. Vehicle IDs are backend-assigned; local storage only retains the device key and assigned ID for reconnects.
+
 ## Test
 
 ```bash

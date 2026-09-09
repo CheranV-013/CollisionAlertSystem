@@ -139,6 +139,14 @@ def health(): return {"status":"ok", "backend":"ok", "websocket":"ready", "gps":
 def world(): return build_world()
 @app.get("/api/config")
 def config(): return {"mode":mode, "stale_timeout_s":STALE_TIMEOUT_S, "map_api_key":os.getenv("MAP_API_KEY", ""), "map_style_url":os.getenv("MAP_STYLE_URL", "")}
+@app.post("/api/session/reset")
+def reset_session(token: str | None = None):
+    global host_vehicle_id, next_truck_number
+    expected = os.getenv("SESSION_RESET_TOKEN", "")
+    if expected and token != expected: raise HTTPException(403, "invalid session reset token")
+    registry.clear(); device_assignments.clear(); host_vehicle_id = None; next_truck_number = 2
+    log.warning("WORLD SESSION RESET")
+    return {"status":"ok", "message":"session cleared; next active device becomes HOST-001"}
 @app.post("/api/mode")
 def set_mode(command: ModeCommand):
     global mode

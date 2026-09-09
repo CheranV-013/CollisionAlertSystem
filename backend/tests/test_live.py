@@ -1,6 +1,7 @@
 import time
 from fastapi.testclient import TestClient
 from app.main import app, registry
+import app.main as main_module
 
 def test_live_starts_without_demo_vehicles():
     registry.clear()
@@ -37,3 +38,15 @@ def test_shared_websocket_accepts_phone_update_and_broadcasts():
             messages = [socket.receive_json() for _ in range(2)]
             assert any(message.get('type') == 'world_state' and message.get('vehicles') and message['vehicles'][0]['vehicle_id'] == 'B01' for message in messages)
             assert registry['B01'].state.source.value == 'BROWSER_GPS'
+
+def test_backend_assigns_one_host_and_subsequent_trucks(monkeypatch):
+    registry.clear(); main_module.device_assignments.clear(); main_module.host_vehicle_id = None; main_module.next_truck_number = 2
+    async def no_ip_geo(_): return None
+    monkeypatch.setattr(main_module.ipgeo, 'lookup', no_ip_geo)
+    with TestClient(app) as client:
+        with client.websocket_connect('/ws') as first:
+            first.receive_json(); first.send_json({'type':'DEVICE_JOIN','device_key':'device-a'}); ack_a = first.receive_json()
+        with client.websocket_connect('/ws') as second:
+            second.receive_json(); second.send_json({'type':'DEVICE_JOIN','device_key':'device-b'}); ack_b = second.receive_json()
+    assert (ack_a['vehicle_id'], ack_a['role']) == ('HOST-001', 'HOST')
+    assert (ack_b['vehicle_id'], ack_b['role']) == ('TRUCK-002', 'TRUCK')

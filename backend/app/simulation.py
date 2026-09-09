@@ -35,7 +35,7 @@ class Simulator:
         self.vehicles = [SimVehicle(*args, scenario=self.scenario) for args in specs.get(self.scenario, specs["multiple"])]
 
     def host(self, now: float) -> GPSState:
-        return GPSState(vehicle_id="HOST", latitude=self.lat, longitude=self.lon, speed_mps=8.3, heading_deg=90, timestamp=now, satellites=9, source=DetectionSource.SIMULATED)
+        return GPSState(vehicle_id="HOST-001", role="HOST", latitude=self.lat, longitude=self.lon, speed_mps=8.3, heading_deg=90, timestamp=now, satellites=9, source=DetectionSource.SIMULATED)
 
     def tick(self, dt: float = .1) -> tuple[GPSState, list[GPSState]]:
         if self.running:
@@ -49,5 +49,5 @@ class Simulator:
         targets = []
         for v in self.vehicles:
             tlat, tlon = offset_coordinate(self.lat, self.lon, v.north_m, v.east_m)
-            targets.append(GPSState(vehicle_id=v.vehicle_id, latitude=tlat, longitude=tlon, speed_mps=v.speed_mps, heading_deg=v.heading_deg, timestamp=now, satellites=9, source=DetectionSource.SIMULATED))
+            targets.append(GPSState(vehicle_id=v.vehicle_id, role="TRUCK", latitude=tlat, longitude=tlon, speed_mps=v.speed_mps, heading_deg=v.heading_deg, timestamp=now, satellites=9, source=DetectionSource.SIMULATED))
         return self.host(now), targets

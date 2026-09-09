@@ -23,6 +23,7 @@ class GPSState(BaseModel):
     vehicle_id: str
     source: DetectionSource
     location_source: DetectionSource | None = None
+    role: str = "TRUCK"
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
     altitude_m: float | None = None
@@ -89,6 +90,7 @@ class UnifiedVehicleState(BaseModel):
     ip_region: str | None = None
     ip_country: str | None = None
     gps_permission: str = "unknown"
+    role: str = "TRUCK"
 
 class WorldState(BaseModel):
     type: str = "world_state"

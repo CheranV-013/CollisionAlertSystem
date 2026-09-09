@@ -1,2 +1,4 @@
-const KEY='smart_drive_vehicle_id';
-export function getVehicleId(){let id=localStorage.getItem(KEY);if(!id){id=`TRUCK-${crypto.randomUUID().slice(0,8).toUpperCase()}`;localStorage.setItem(KEY,id)}return id}
+const DEVICE_KEY='smartDriveDeviceKey'; const VEHICLE_KEY='smartDriveVehicleId';
+export function getDeviceKey(){let id=localStorage.getItem(DEVICE_KEY);if(!id){id=crypto.randomUUID();localStorage.setItem(DEVICE_KEY,id)}return id}
+export function getAssignedVehicleId(){return localStorage.getItem(VEHICLE_KEY)}
+export function setAssignedVehicleId(id:string){localStorage.setItem(VEHICLE_KEY,id)}

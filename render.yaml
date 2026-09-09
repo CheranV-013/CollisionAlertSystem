@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: sih26007-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: TRUST_PROXY_HEADERS
+        value: "true"
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: GPS_TIMEOUT_SECONDS
+        value: "10"
+      - key: STALE_TIMEOUT_SECONDS
+        value: "5"
+      - key: MAP_API_KEY
+        sync: false
+      - key: MAP_STYLE_URL
+        sync: false
+      - key: IP_GEO_PROVIDER_URL
+        value: https://ipapi.co/{ip}/json/

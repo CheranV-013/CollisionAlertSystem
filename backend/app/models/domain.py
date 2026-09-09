@@ -10,6 +10,8 @@ class DetectionSource(str, Enum):
     CAMERA = "CAMERA"
     FUSED = "FUSED"
     SIMULATED = "SIMULATED"
+    BROWSER_GPS = "BROWSER_GPS"
+    IP_APPROXIMATE = "IP_APPROXIMATE"
 
 class RiskLevel(str, Enum):
     SAFE = "SAFE"
@@ -20,6 +22,7 @@ class RiskLevel(str, Enum):
 class GPSState(BaseModel):
     vehicle_id: str
     source: DetectionSource
+    location_source: DetectionSource | None = None
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
     altitude_m: float | None = None
@@ -81,6 +84,11 @@ class UnifiedVehicleState(BaseModel):
     updated_at: float
     accuracy_m: float | None = None
     status: str = "LIVE"
+    location_source: DetectionSource | None = None
+    ip_city: str | None = None
+    ip_region: str | None = None
+    ip_country: str | None = None
+    gps_permission: str = "unknown"
 
 class WorldState(BaseModel):
     type: str = "world_state"
@@ -92,3 +100,4 @@ class WorldState(BaseModel):
     mode: str = "LIVE"
     scenario: str | None = None
     demo_running: bool = False
+    host_vehicle_id: str | None = None

@@ -26,3 +26,14 @@ def test_invalid_coordinates_are_rejected():
     with TestClient(app) as client:
         assert client.post('/api/vehicle/HOST/position', json={'latitude':91,'longitude':0,'gps_fix':True}).status_code == 422
 
+def test_shared_websocket_accepts_phone_update_and_broadcasts():
+    registry.clear()
+    with TestClient(app) as client:
+        client.post('/api/vehicle/HOST/position', json={'source':'NEO6M','latitude':11.0,'longitude':76.0,'speed_mps':4,'heading_deg':90,'gps_fix':True,'timestamp':time.time()})
+        with client.websocket_connect('/ws') as socket:
+            first = socket.receive_json()
+            assert first['mode'] == 'LIVE'
+            socket.send_json({'type':'PHONE_GPS_UPDATE','vehicle_id':'B01','latitude':11.0,'longitude':76.001,'accuracy_m':7,'speed_mps':None,'heading_deg':None,'timestamp':time.time()})
+            messages = [socket.receive_json() for _ in range(2)]
+            assert any(message.get('type') == 'world_state' and message.get('vehicles') and message['vehicles'][0]['vehicle_id'] == 'B01' for message in messages)
+            assert registry['B01'].state.source.value == 'BROWSER_GPS'

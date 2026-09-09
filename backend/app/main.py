@@ -44,9 +44,10 @@ class RegistryEntry:
 
 registry: dict[str, RegistryEntry] = {}
 device_assignments: dict[str, str] = {}
+device_roles: dict[str, str] = {}
 clients: set[WebSocket] = set()
 host_vehicle_id: str | None = None
-next_truck_number = 2
+next_member_number = 1
 mode = "LIVE"
 sim = Simulator(float(os.getenv("HOST_LATITUDE", "11.0168")), float(os.getenv("HOST_LONGITUDE", "76.9558")))
 sim.running = False
@@ -63,33 +64,46 @@ def client_ip(ws: WebSocket) -> str | None:
 def state_from_update(vehicle_id: str, update: PositionUpdate) -> GPSState:
     if update.gps_fix and (update.latitude is None or update.longitude is None):
         raise HTTPException(422, "latitude and longitude are required when gps_fix is true")
-    role = "HOST" if vehicle_id == host_vehicle_id else "TRUCK"
+    role = "HOST" if vehicle_id == host_vehicle_id else device_roles.get(next((key for key, value in device_assignments.items() if value == vehicle_id), ""), "MEMBER")
     return GPSState(vehicle_id=vehicle_id, role=role, fix=update.gps_fix, location_source=update.source, **update.model_dump(exclude={"gps_fix"}))
 
-async def register_device(vehicle_id: str, ws: WebSocket) -> dict:
-    global host_vehicle_id, next_truck_number
-    device_key = vehicle_id
+async def register_device(device_key: str, requested_role: str, ws: WebSocket, metadata: dict) -> dict:
+    global host_vehicle_id, next_member_number
+    requested_role = requested_role.upper()
+    if requested_role not in ("HOST", "MEMBER"): raise ValueError("role must be HOST or MEMBER")
     if not device_key or len(device_key) > 128: raise ValueError("invalid device key")
-    if device_key in device_assignments: vehicle_id = device_assignments[device_key]
-    elif host_vehicle_id is None:
-        vehicle_id, host_vehicle_id = "HOST-001", "HOST-001"; device_assignments[device_key] = vehicle_id
+    existing = device_assignments.get(device_key)
+    if existing and device_roles.get(device_key) == requested_role:
+        vehicle_id = existing
+    elif requested_role == "HOST":
+        if host_vehicle_id and host_vehicle_id != existing: raise PermissionError("HOST_ALREADY_ACTIVE")
+        vehicle_id, host_vehicle_id = "HOST-001", "HOST-001"
+        device_assignments[device_key], device_roles[device_key] = vehicle_id, requested_role
     else:
-        vehicle_id = f"TRUCK-{next_truck_number:03d}"; next_truck_number += 1; device_assignments[device_key] = vehicle_id
+        vehicle_id = existing if existing and device_roles.get(device_key) == "MEMBER" else f"MEMBER-{next_member_number:03d}"
+        if vehicle_id.startswith("MEMBER-") and (not existing or device_roles.get(device_key) != "MEMBER"): next_member_number += 1
+        device_assignments[device_key], device_roles[device_key] = vehicle_id, requested_role
     ip = client_ip(ws); geo = await ipgeo.lookup(ip)
-    role = "HOST" if vehicle_id == host_vehicle_id else "TRUCK"
-    if vehicle_id in registry: entry = registry[vehicle_id]; entry.ip_address, entry.ip_geo, entry.last_update, entry.device_key = ip, geo, time.time(), device_key; entry.state.role = role
+    role = requested_role
+    if vehicle_id in registry:
+        entry = registry[vehicle_id]; entry.ip_address, entry.ip_geo, entry.last_update, entry.device_key = ip, geo, time.time(), device_key
+        entry.state.role = role; entry.state.device_id = device_key; entry.state.device_name = metadata.get("device_name"); entry.state.browser = metadata.get("browser"); entry.state.platform = metadata.get("platform"); entry.state.ip_address = ip
     else:
         source = DetectionSource.IP_APPROXIMATE
-        state = GPSState(vehicle_id=vehicle_id, role=role, source=source, location_source=source, latitude=geo.latitude if geo else None, longitude=geo.longitude if geo else None, fix=False, timestamp=time.time())
+        state = GPSState(vehicle_id=vehicle_id, role=role, device_id=device_key, device_name=metadata.get("device_name"), browser=metadata.get("browser"), platform=metadata.get("platform"), ip_address=ip, source=source, location_source=source, latitude=geo.latitude if geo else None, longitude=geo.longitude if geo else None, fix=False, timestamp=time.time())
         registry[vehicle_id] = RegistryEntry(state, ip, geo, device_key)
     log.info("DEVICE REGISTERED vehicle_id=%s role=%s ip_geo=%s", vehicle_id, role, bool(geo))
-    return {"vehicle_id": vehicle_id, "role": role, "ip_location": bool(geo), "device_key": device_key}
+    return {"vehicle_id": vehicle_id, "role": role, "ip_location": bool(geo), "device_key": device_key, "device_name": metadata.get("device_name")}
 
 def put_state(vehicle_id: str, update: PositionUpdate, ip: str | None = None) -> GPSState:
     global host_vehicle_id
     if host_vehicle_id is None and vehicle_id == "HOST": host_vehicle_id = vehicle_id
     state = state_from_update(vehicle_id, update)
-    if vehicle_id in registry: registry[vehicle_id].update(state)
+    if vehicle_id in registry:
+        old = registry[vehicle_id].state
+        state.device_id, state.device_name, state.browser, state.platform, state.ip_address = old.device_id, old.device_name, old.browser, old.platform, old.ip_address
+        state.role = old.role
+        registry[vehicle_id].update(state)
     else: registry[vehicle_id] = RegistryEntry(state, ip)
     log.info("location update vehicle_id=%s source=%s fix=%s", vehicle_id, state.source.value, state.fix)
     return state
@@ -119,7 +133,7 @@ def build_world() -> WorldState:
             score, level, ttc = 0.0, RiskLevel.SAFE, None
         metrics = RiskMetrics(distance_m=distance, bearing_deg=bearing, relative_bearing_deg=rel, closing_speed_mps=closing, ttc_s=ttc, score=score, level=level)
         geo = entry.ip_geo
-        vehicles.append(UnifiedVehicleState(vehicle_id=target.vehicle_id, role=target.role, latitude=target.latitude, longitude=target.longitude, speed_mps=target.speed_mps, heading_deg=target.heading_deg, distance_m=distance, bearing_deg=bearing, relative_bearing_deg=rel, source=target.source, confidence=.96 if target.location_source == DetectionSource.BROWSER_GPS else .25, risk=level, risk_metrics=metrics, updated_at=target.timestamp, accuracy_m=target.accuracy_m, status="SIMULATED" if mode == "DEMO" else entry.status, location_source=target.location_source, ip_city=geo.city if geo else None, ip_region=geo.region if geo else None, ip_country=geo.country if geo else None, gps_permission="active" if target.location_source == DetectionSource.BROWSER_GPS else "unknown"))
+        vehicles.append(UnifiedVehicleState(vehicle_id=target.vehicle_id, role=target.role, device_id=target.device_id, device_name=target.device_name, ip_address=target.ip_address, latitude=target.latitude, longitude=target.longitude, speed_mps=target.speed_mps, heading_deg=target.heading_deg, distance_m=distance, bearing_deg=bearing, relative_bearing_deg=rel, source=target.source, confidence=.96 if target.location_source == DetectionSource.BROWSER_GPS else .25, risk=level, risk_metrics=metrics, updated_at=target.timestamp, accuracy_m=target.accuracy_m, status="SIMULATED" if mode == "DEMO" else entry.status, location_source=target.location_source, ip_city=geo.city if geo else None, ip_region=geo.region if geo else None, ip_country=geo.country if geo else None, gps_permission="active" if target.location_source == DetectionSource.BROWSER_GPS else "unknown"))
     host_entry = registry.get(host_vehicle_id or "")
     host_status = "SIMULATED" if mode == "DEMO" else (host_entry.status if host_entry else "WAITING")
     status = {"system": "ONLINE", "host_gps": "SIMULATED" if mode == "DEMO" else (host.location_source.value if host.location_source else host_status), "trucks_online": sum(1 for _, entry in targets if entry.status == "ONLINE"), "camera": "DISCONNECTED", "imu": "DISCONNECTED", "v2v": "DISCONNECTED", "mode": mode, "stale_timeout_s": STALE_TIMEOUT_S}
@@ -141,10 +155,10 @@ def world(): return build_world()
 def config(): return {"mode":mode, "stale_timeout_s":STALE_TIMEOUT_S, "map_api_key":os.getenv("MAP_API_KEY", ""), "map_style_url":os.getenv("MAP_STYLE_URL", "")}
 @app.post("/api/session/reset")
 def reset_session(token: str | None = None):
-    global host_vehicle_id, next_truck_number
+    global host_vehicle_id, next_member_number
     expected = os.getenv("SESSION_RESET_TOKEN", "")
     if expected and token != expected: raise HTTPException(403, "invalid session reset token")
-    registry.clear(); device_assignments.clear(); host_vehicle_id = None; next_truck_number = 2
+    registry.clear(); device_assignments.clear(); device_roles.clear(); host_vehicle_id = None; next_member_number = 1
     log.warning("WORLD SESSION RESET")
     return {"status":"ok", "message":"session cleared; next active device becomes HOST-001"}
 @app.post("/api/mode")
@@ -177,18 +191,22 @@ async def websocket(ws: WebSocket):
             kind = message.get("type")
             if kind == "pong": continue
             if kind == "DEVICE_JOIN":
-                join_key = str(message.get("device_key") or message.get("vehicle_id") or "")
-                ack = await register_device(join_key, ws); await ws.send_json({"type":"device_ack", **ack}); await broadcast_now(); continue
+                join_key = str(message.get("device_id") or message.get("device_key") or "")
+                try:
+                    ack = await register_device(join_key, str(message.get("role") or ""), ws, message)
+                    await ws.send_json({"type":"DEVICE_REGISTERED", **ack}); await broadcast_now()
+                except (PermissionError, ValueError) as exc: await ws.send_json({"type":"ROLE_REJECTED","reason":str(exc)})
+                continue
             if kind == "DEVICE_HEARTBEAT":
                 device_key = str(message.get("device_key") or ""); vehicle_id = device_assignments.get(device_key, str(message.get("vehicle_id", "")));
                 if vehicle_id in registry: registry[vehicle_id].last_heartbeat = time.time()
                 continue
             if kind in ("LOCATION_UPDATE", "PHONE_GPS_UPDATE") or message.get("vehicle_id"):
                 device_key = str(message.get("device_key") or ""); vehicle_id = device_assignments.get(device_key)
-                if vehicle_id is None: vehicle_id = str(message.get("vehicle_id", ""));
-                if vehicle_id not in registry and device_key: await register_device(device_key, ws); vehicle_id = device_assignments[device_key]
+                if vehicle_id is None or vehicle_id not in registry:
+                    await ws.send_json({"type":"LOCATION_REJECTED","reason":"DEVICE_NOT_REGISTERED"}); continue
                 message["source"] = DetectionSource.BROWSER_GPS; message["gps_fix"] = True
-                put_state(vehicle_id, PositionUpdate.model_validate(message), client_ip(ws)); await broadcast_now()
+                put_state(vehicle_id, PositionUpdate.model_validate(message), client_ip(ws)); log.info("LOCATION UPDATE RECEIVED vehicle_id=%s role=%s lat=%s lon=%s", vehicle_id, registry[vehicle_id].state.role, message.get("latitude"), message.get("longitude")); await broadcast_now()
     except (WebSocketDisconnect, RuntimeError, ValueError) as exc:
         log.info("WebSocket disconnected: %s", exc)
     finally:

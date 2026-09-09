@@ -49,5 +49,5 @@ class Simulator:
         targets = []
         for v in self.vehicles:
             tlat, tlon = offset_coordinate(self.lat, self.lon, v.north_m, v.east_m)
-            targets.append(GPSState(vehicle_id=v.vehicle_id, role="TRUCK", latitude=tlat, longitude=tlon, speed_mps=v.speed_mps, heading_deg=v.heading_deg, timestamp=now, satellites=9, source=DetectionSource.SIMULATED))
+            targets.append(GPSState(vehicle_id=v.vehicle_id, role="MEMBER", latitude=tlat, longitude=tlon, speed_mps=v.speed_mps, heading_deg=v.heading_deg, timestamp=now, satellites=9, source=DetectionSource.SIMULATED))
         return self.host(now), targets
